@@ -44,10 +44,12 @@ inline void gpuAssert(cudaError_t code, const char* file, int line, bool abort =
 }
 
 
-// GPU kernel which access an vector with a strdie pattern
+// GPU kernel which access an vector with a stride pattern
 __global__ void strided_kernel(int* vec, int size, int stride)
 {
     //ToDo: Implement the strided kernel vec[i] = vec[i] + 1 
+    int idx = (blockIdx.x * blockDim.x + threadIdx.x);
+    vec[idx]++;
 }
 
 
@@ -78,6 +80,22 @@ void gpu_stride_loop(int* device_vec, int size)
     //       Calculate and print the used Bandwidth
     //       No need to reset the device_vec to 1, we are not interessted in the result
 
+    for (int stride = 1; stride <= 32; stride++) {
+        cudaEventRecord(startEvent, 0); // Record start time before kernel launch
+
+        strided_kernel<<<size / blockSize, blockSize>>>(device_vec, size, stride);
+
+        cudaEventRecord(stopEvent, 0); // Record stop time after kernel launch
+        cudaEventSynchronize(stopEvent); // Ensure that all kernels have completed
+
+        float milliseconds = 0;
+        cudaEventElapsedTime(&milliseconds, startEvent, stopEvent); // Calculate elapsed time
+
+        float seconds = milliseconds / 1000.0f; // Convert milliseconds to seconds
+        float bandwidth = processedMB / seconds; // Calculate bandwidth
+
+        cout << "GPU stride size " << stride << ": " << bandwidth << "GB/s bandwidth" << endl;
+    }
 }
 
 

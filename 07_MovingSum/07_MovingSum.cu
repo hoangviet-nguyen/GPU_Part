@@ -26,7 +26,7 @@
 
 using namespace std;
 
-#define RADIUS      10
+#define RADIUS      1
 #define BLOCKSIZE   512
 #define WIDTH       65536
 
@@ -61,8 +61,44 @@ inline void gpuAssert(cudaError_t code, const char* file, int line, bool abort =
 */
 __global__ void movingSumSharedMemStatic(int* vec, int* result_vec, int size)
 {
-    //ToDo
+    int globalIdx = blockDim.x * blockIdx.x + threadIdx.x;
+    int result = 0;
+    int sharedSize = BLOCKSIZE + 2 * RADIUS;
+
+    // initialize static shared memory
+    __shared__ int shmTile[BLOCKSIZE + 2 * RADIUS];
+
+    // load the data into the array
+    shmTile[threadIdx.x] = vec[globalIdx];
+
+     for(int i = threadIdx.x + BLOCKSIZE; i < sharedSize; i += blockDim.x) {
+        shmTile[i] = vec[globalIdx + i - BLOCKSIZE];
+    }
+    __syncthreads();
+
+    if(globalIdx >= RADIUS && globalIdx < size - RADIUS) {
+        for(int offset = 0; offset <= 2 * RADIUS; offset++) {
+            int idx = threadIdx.x + offset;
+            result += shmTile[idx];
+        }
+    }
+
+    if(globalIdx < RADIUS) {
+        for(int offset = 0 - globalIdx; offset <= RADIUS; offset++) {
+            result += shmTile[globalIdx + offset];
+        }
+    }
+
+    if (globalIdx < size && globalIdx >= size - RADIUS) {
+        for (int offset = -RADIUS; offset < 1; offset++) {
+            result += vec[threadIdx.x + offset];
+        }
+    }
+
+    // save the result to the result_vec
+    result_vec[globalIdx] = result;
 }
+
 
 
 /*
@@ -97,7 +133,7 @@ __global__ void movingSumAtomics(int* vec, int* result_vec, int size)
 }
 
 
-// This is the GPU refernece implementation
+// This is the GPU reference implementation
 __global__ void movingSumGlobal(int* vec, int* result_vec, int size)
 {
 
@@ -213,8 +249,9 @@ int main(void)
     int nbr_blocks = ((WIDTH % BLOCKSIZE) != 0) ? (WIDTH / BLOCKSIZE + 1) : (WIDTH / BLOCKSIZE);
     movingSumGlobal << <nbr_blocks, BLOCKSIZE >> > (deviceVecInput, deviceVecOutput1, WIDTH);
     gpuErrCheck(cudaPeekAtLastError());
-    //ToDo: movingSumSharedMemStatic << <nbr_blocks, BLOCKSIZE >> > (deviceVecInput, deviceVecOutput2, WIDTH);
+    movingSumSharedMemStatic << <nbr_blocks, BLOCKSIZE >> > (deviceVecInput, deviceVecOutput2, WIDTH);
     gpuErrCheck(cudaPeekAtLastError());
+
     //ToDo: movingSumSharedMemDynamic <<<nbr_blocks, BLOCKSIZE, ?????????? >>> (deviceVecInput, deviceVecOutput3, WIDTH);
     gpuErrCheck(cudaPeekAtLastError());
     //ToDo: movingSumAtomics << <nbr_blocks, BLOCKSIZE >> > (deviceVecInput, deviceVecOutput4, WIDTH);
